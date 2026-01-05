@@ -4,6 +4,9 @@ import { useState } from "react"
 import type { User } from "@supabase/supabase-js"
 import { DashboardSidebar } from "./dashboard-sidebar"
 import { DashboardContent } from "./dashboard-content"
+import { TransactionModal } from "./transaction-modal"
+import { InstallmentsModal } from "./installments-modal"
+import { CategoryModal } from "./category-modal"
 
 interface DashboardLayoutProps {
   user: User
@@ -29,9 +32,27 @@ export function DashboardLayout({ user }: DashboardLayoutProps) {
         setSelectedYear={setSelectedYear}
         selectedMonth={selectedMonth}
         setSelectedMonth={setSelectedMonth}
+         actions={
+          <div className="flex flex-col gap-2">
+            <TransactionModal
+              userId={user.id}
+              onSuccess={() => {}}
+            />
+            <InstallmentsModal
+              userId={user.id}
+              onSuccess={() => {}}
+            />
+            <CategoryModal
+              userId={user.id}
+              onSuccess={() => {}}
+            />
+          </div>
+        }
       />
 
       <DashboardContent user={user} />
+      
     </div>
+    
   )
 }

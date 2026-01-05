@@ -140,15 +140,10 @@ const remainingBalance = summary.totalIncome - summary.totalExpenses
   return (
     <main className="flex-1 overflow-y-auto p-8">
       <div className="mx-auto max-w-7xl space-y-8">
+        
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-          <div className="flex gap-3">
-            <TransactionModal userId={user.id} onSuccess={loadDashboardData} />
-            <InstallmentsModal userId={user.id} onSuccess={loadDashboardData} />
-            <CategoryModal userId={user.id} onSuccess={loadDashboardData} />
-          </div>
         </div>
-
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList className="border-slate-800 bg-slate-900">
             <TabsTrigger value="overview" className="data-[state=active]:bg-blue-600">
