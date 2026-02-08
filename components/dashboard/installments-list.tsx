@@ -1,151 +1,109 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Card } from "@/components/ui/card"
 import { createClient } from "@/lib/supabase/client"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Calendar, RefreshCw, CreditCard } from "lucide-react"
-import { InstallmentDetailsModal } from "./installment-details-modal" // Certifique-se de que o nome do arquivo bate
+import { useToast } from "@/hooks/use-toast"
+import { format } from "date-fns"
+import { ptBR } from "date-fns/locale"
+import { Layers, Trash2, MoreVertical, Calendar } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
-interface Installment {
-  id: string
-  description: string
-  total_amount: number
-  installments_count: number
-  paid_installments: number
-  start_date: string
-  status: string
-  frequency: string
-  type: "income" | "expense"
-  account_id: string
-}
+export function InstallmentsList({ userId }: { userId: string }) {
+  const [installments, setInstallments] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const { toast } = useToast()
+  const supabase = createClient()
 
-interface InstallmentsListProps {
-  userId: string
-}
+  const fetchInstallments = async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from("installments")
+      .select("*, categories(name)")
+      .eq("user_id", userId)
+      .order("due_date", { ascending: true })
+    setInstallments(data || [])
+    setLoading(false)
+  }
 
-export function InstallmentsList({ userId }: InstallmentsListProps) {
-  const [installments, setInstallments] = useState<Installment[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [selectedInstallment, setSelectedInstallment] = useState<Installment | null>(null)
+  useEffect(() => { fetchInstallments() }, [])
 
-  useEffect(() => {
-    loadInstallments()
-  }, [userId])
+  const handleDelete = async (id: string, groupId: string, all: boolean) => {
+    const msg = all ? "Eliminar TODAS as parcelas deste grupo?" : "Eliminar apenas esta parcela?"
+    if (!confirm(msg)) return
 
-  const loadInstallments = async () => {
     try {
-      setIsLoading(true)
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("installments")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-
-      if (error) throw error
-      setInstallments(data || [])
-    } catch (error) {
-      console.error("Erro ao carregar parcelas:", error)
-    } finally {
-      setIsLoading(false)
+      if (all) {
+        await supabase.from("installments").delete().eq("group_id", groupId)
+      } else {
+        await supabase.from("installments").delete().eq("id", id)
+      }
+      
+      toast({ title: "Sucesso", description: "Parcela(s) removida(s)." })
+      fetchInstallments()
+    } catch (err) {
+      toast({ title: "Erro", variant: "destructive" })
     }
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-10 text-slate-400">
-        <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
-        Carregando parcelamentos...
-      </div>
-    )
-  }
+  if (loading) return <div className="text-center py-10 text-gray-500 animate-pulse">A carregar parcelas...</div>
 
   if (installments.length === 0) {
     return (
-      <Card className="border-slate-800 bg-slate-900 p-10 text-center">
-        <p className="text-slate-400">Nenhum parcelamento ativo encontrado.</p>
-      </Card>
+      <div className="text-center py-10">
+        <Layers className="mx-auto text-gray-700 mb-2" size={32} />
+        <p className="text-gray-500">Nenhum parcelamento ativo.</p>
+      </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      {installments.map((installment) => {
-        // Cálculo de progresso e valores
-        const total = installment.installments_count || 1
-        const paid = installment.paid_installments || 0
-        const progress = (paid / total) * 100
-        const installmentValue = installment.total_amount / total
-
-        return (
-          <Card 
-            key={installment.id} 
-            onClick={() => setSelectedInstallment(installment)}
-            className="border-slate-800 bg-slate-900 p-5 transition-all hover:border-blue-600/50 hover:bg-slate-800/50 cursor-pointer group"
-          >
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              
-              <div className="flex-1 space-y-2">
-                <div className="flex items-center gap-3">
-                  <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition-colors">
-                    {installment.description}
-                  </h3>
-                  <Badge
-                    className={
-                      installment.status === "active" 
-                        ? "bg-blue-600/20 text-blue-400 border-blue-600/30" 
-                        : "bg-green-600/20 text-green-400 border-green-600/30"
-                    }
-                  >
-                    {installment.status === "active" ? "Em andamento" : "Concluído"}
-                  </Badge>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-400">
-                  <div className="flex items-center gap-1">
-                    <Calendar className="h-4 w-4" />
-                    <span>{paid}/{total} parcelas pagas</span>
-                  </div>
-                  
-                  <div className="flex items-center gap-1 font-medium">
-                    <CreditCard className="h-4 w-4" />
-                    <span className={installment.type === "income" ? "text-green-400" : "text-red-400"}>
-                      R$ {installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </span>
-                    <span className="text-slate-500 text-xs lowercase">/{installment.frequency === "monthly" ? "mês" : "semana"}</span>
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-1.5">
-                  <div className="flex justify-between text-[10px] uppercase font-bold tracking-wider text-slate-500">
-                    <span>Progresso de quitação</span>
-                    <span>{Math.round(progress)}%</span>
-                  </div>
-                  <Progress value={progress} className="h-1.5 bg-slate-800" />
-                </div>
-              </div>
-
-              <div className="flex flex-col items-end justify-center border-t border-slate-800 pt-4 sm:border-0 sm:pt-0">
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Valor Total</p>
-                <p className={`text-2xl font-black ${installment.type === "income" ? "text-green-400" : "text-white"}`}>
-                  R$ {installment.total_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </p>
-                <p className="text-[10px] text-blue-500 font-bold mt-1 group-hover:underline">Ver detalhes e pagar</p>
-              </div>
+      {installments.map((inst) => (
+        <div key={inst.id} className="flex items-center justify-between p-4 bg-slate-900/40 border border-slate-800 rounded-xl hover:bg-slate-900/60 transition-colors">
+          <div className="flex items-center gap-4">
+            <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-500">
+              <Calendar size={20} />
             </div>
-          </Card>
-        )
-      })}
+            <div>
+              <p className="font-bold text-sm text-white">{inst.description}</p>
+              <p className="text-[10px] text-gray-500 uppercase font-black">
+                {inst.categories?.name} • PARCELA {inst.installment_number}
+              </p>
+            </div>
+          </div>
 
-      {/* Modal que abre ao clicar no Card */}
-      <InstallmentDetailsModal
-        installment={selectedInstallment}
-        open={!!selectedInstallment}
-        onOpenChange={() => setSelectedInstallment(null)}
-        onSuccess={loadInstallments}
-      />
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="text-sm font-black text-red-500">
+                R$ {inst.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </p>
+              <p className="text-[10px] text-gray-500">
+                Vence em {format(new Date(inst.due_date + 'T12:00:00'), "dd/MM/yyyy", { locale: ptBR })}
+              </p>
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-500"><MoreVertical size={16} /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-slate-900 border-slate-800 text-white">
+                <DropdownMenuItem onClick={() => handleDelete(inst.id, inst.group_id, false)} className="flex gap-2 cursor-pointer">
+                   Eliminar esta
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleDelete(inst.id, inst.group_id, true)} className="flex gap-2 cursor-pointer text-red-500">
+                   Eliminar GRUPO (Tudo)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

@@ -1,72 +1,93 @@
 "use client"
 
-import { ReactNode } from "react"
-import { Card } from "@/components/ui/card"
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import { LayoutDashboard, Receipt, PieChart, ChevronLeft, ChevronRight } from "lucide-react"
+import { cn } from "@/lib/utils"
 
-interface DateRange {
-  from: string
-  to: string
-}
-
-interface DashboardSidebarProps {
+interface SidebarProps {
+  activeTab: string
+  setActiveTab: (tab: string) => void
   selectedAccount: string
-  setSelectedAccount: React.Dispatch<React.SetStateAction<string>>
-
-  dateRange: DateRange
-  setDateRange: React.Dispatch<React.SetStateAction<DateRange>>
-
-  actions?: ReactNode
+  setSelectedAccount: (account: string) => void
+  dateRange: { from: string; to: string }
+  setDateRange: (range: any) => void
+  actions?: React.ReactNode
 }
 
-export function DashboardSidebar({
-  selectedAccount,
-  setSelectedAccount,
-  dateRange,
-  setDateRange,
-  actions,
-}: DashboardSidebarProps) {
+export function DashboardSidebar({ 
+  activeTab, 
+  setActiveTab, 
+  actions 
+}: SidebarProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false)
+
   return (
-    <Card className="border-slate-800 bg-slate-900 p-4 space-y-4">
-      {/* CONTA */}
-      <div>
-        <p className="text-sm text-slate-400 mb-1">Conta</p>
-        <select
-          value={selectedAccount}
-          onChange={(e) => setSelectedAccount(e.target.value)}
-          className="w-full rounded bg-slate-800 border border-slate-700 p-2 text-white"
-        >
-          <option value="">Todas</option>
-          <option value="checking">Conta Corrente</option>
-          <option value="credit">Crédito</option>
-          <option value="cash">Dinheiro</option>
-        </select>
-      </div>
+    <aside 
+      className={cn(
+        "hidden md:flex flex-col bg-[#0d1117] border-r border-gray-800 transition-all duration-300 relative",
+        isCollapsed ? "w-20" : "w-64"
+      )}
+    >
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className="absolute -right-3 top-10 h-6 w-6 rounded-full border border-gray-700 bg-[#0d1117] z-50 shadow-sm text-white hover:bg-gray-800"
+      >
+        {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+      </Button>
 
-      {/* PERÍODO */}
-      <div>
-        <p className="text-sm text-slate-400 mb-1">Período</p>
-        <div className="flex gap-2">
-          <input
-            type="date"
-            value={dateRange.from}
-            onChange={(e) =>
-              setDateRange((prev) => ({ ...prev, from: e.target.value }))
-            }
-            className="flex-1 rounded bg-slate-800 border border-slate-700 p-2 text-white"
-          />
-          <input
-            type="date"
-            value={dateRange.to}
-            onChange={(e) =>
-              setDateRange((prev) => ({ ...prev, to: e.target.value }))
-            }
-            className="flex-1 rounded bg-slate-800 border border-slate-700 p-2 text-white"
-          />
+      <div className={cn("p-6 flex items-center gap-3", isCollapsed && "justify-center")}>
+        <div className="h-8 w-8 bg-blue-600 rounded-lg flex-shrink-0 flex items-center justify-center">
+          <Receipt className="text-white h-5 w-5" />
         </div>
+        {!isCollapsed && <span className="text-xl font-black tracking-tighter text-white">FINTRACK</span>}
       </div>
 
-      {/* AÇÕES EXTRAS */}
-      {actions && <div className="pt-2">{actions}</div>}
-    </Card>
+      <nav className="flex-1 px-3 space-y-2 mt-4">
+        <NavItem 
+          icon={<LayoutDashboard size={20} />} 
+          label="Início" 
+          active={activeTab === 'geral'} 
+          onClick={() => setActiveTab('geral')}
+          collapsed={isCollapsed} 
+        />
+        <NavItem 
+          icon={<Receipt size={20} />} 
+          label="Extrato" 
+          active={activeTab === 'transacoes'} 
+          onClick={() => setActiveTab('transacoes')}
+          collapsed={isCollapsed} 
+        />
+        <NavItem 
+          icon={<PieChart size={20} />} 
+          label="Parcelas" 
+          active={activeTab === 'parcelas'} 
+          onClick={() => setActiveTab('parcelas')}
+          collapsed={isCollapsed} 
+        />
+      </nav>
+
+      <div className="p-4 border-t border-gray-800">
+        {actions}
+      </div>
+    </aside>
+  )
+}
+
+function NavItem({ icon, label, active, onClick, collapsed }: any) {
+  return (
+    <button 
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center gap-3 p-3 rounded-lg transition-all group",
+        active ? "bg-blue-600/20 text-blue-400" : "text-gray-400 hover:bg-gray-800",
+        collapsed && "justify-center px-0"
+      )}
+    >
+      {icon}
+      {!collapsed && <span className="font-medium text-sm">{label}</span>}
+    </button>
   )
 }

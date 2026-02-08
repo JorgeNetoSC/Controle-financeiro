@@ -1,192 +1,144 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { createClient } from "@/lib/supabase/client"
+import { TrendingUp, TrendingDown, Calendar, MoreVertical, Trash2, Edit2 } from "lucide-react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
+import { cn } from "@/lib/utils"
+import { createClient } from "@/lib/supabase/client"
+import { useToast } from "@/hooks/use-toast"
 import {
-  ArrowDownCircle,
-  ArrowUpCircle,
-  Calendar,
-  Pencil,
-  Trash2,
-} from "lucide-react"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Button } from "@/components/ui/button"
 
-interface TransactionsListProps {
-  userId: string
+interface Transaction {
+  id: string
+  description: string
+  amount: number
+  type: "income" | "expense"
+  date: string
+  category_name?: string
+  account_id: string
 }
 
-export function TransactionsList({ userId }: TransactionsListProps) {
-  const [transactions, setTransactions] = useState<any[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+export function TransactionsList({ transactions = [] }: { transactions?: Transaction[] }) {
+  const { toast } = useToast()
+  const supabase = createClient()
 
-  useEffect(() => {
-    loadTransactions()
-  }, [userId])
+  const handleDelete = async (id: string, amount: number, type: string, accountId: string) => {
+    if (!confirm("Tem certeza que deseja excluir esta transação?")) return
 
-  // 🔹 BUSCAR TRANSAÇÕES
-  const loadTransactions = async () => {
-    setIsLoading(true)
-    const supabase = createClient()
+    try {
+      // 1. Deletar a transação
+      const { error: deleteError } = await supabase
+        .from("transactions")
+        .delete()
+        .eq("id", id)
 
-    const { data, error } = await supabase
-      .from("transactions")
-      .select(`
-        *,
-        accounts (name),
-        categories (name, color)
-      `)
-      .eq("user_id", userId)
-      .order("date", { ascending: false })
-      .limit(50)
+      if (deleteError) throw deleteError
 
-    if (error) {
-      console.error("Erro ao carregar transações:", error)
+      // 2. Estornar o valor do saldo da conta
+      // Se era despesa, soma de volta. Se era receita, subtrai.
+      const reverseAmount = type === "income" ? -amount : amount
+      
+      await supabase.rpc("update_account_balance", { 
+        account_uuid: accountId, 
+        amount_change: reverseAmount 
+      })
+
+      toast({ title: "Sucesso", description: "Transação excluída e saldo atualizado." })
+      window.location.reload() // Recarrega para atualizar os gráficos e a lista
+    } catch (error: any) {
+      toast({ 
+        title: "Erro ao excluir", 
+        description: error.message, 
+        variant: "destructive" 
+      })
     }
-
-    setTransactions(data || [])
-    setIsLoading(false)
   }
 
-  // 🔹 DELETAR TRANSAÇÃO
-  const handleDelete = async (id: string) => {
-    const confirmDelete = window.confirm("Deseja realmente excluir esta transação?")
-    if (!confirmDelete) return
-
-    const supabase = createClient()
-
-    const { error } = await supabase
-      .from("transactions")
-      .delete()
-      .eq("id", id)
-      .eq("user_id", userId)
-
-    if (error) {
-      console.error("Erro ao excluir:", error)
-      alert("Erro ao excluir transação")
-      return
-    }
-
-    setTransactions((prev) => prev.filter((t) => t.id !== id))
-  }
-
-  // 🔹 EDITAR (por enquanto só log – depois ligamos ao modal)
-  const handleEdit = (transaction: any) => {
-    console.log("Editar transação:", transaction)
-    // aqui você vai abrir o modal de edição depois
-  }
-  
-
-  if (isLoading) {
-    return <div className="text-center text-slate-400">Carregando transações...</div>
+  if (!transactions || transactions.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 text-center">
+        <div className="bg-slate-800/50 p-3 rounded-full mb-3">
+          <Calendar className="text-slate-500 h-5 w-5" />
+        </div>
+        <p className="text-slate-400 text-sm">Nenhuma transação encontrada.</p>
+      </div>
+    )
   }
 
   return (
-    <Card className="border-slate-800 bg-slate-900 p-6">
-      <h2 className="mb-6 text-xl font-semibold text-white">
-        Todas as Transações
-      </h2>
-
-      <div className="space-y-3">
-        {transactions.map((transaction) => (
-          <div
-            key={transaction.id}
-            className="group flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-800/50 p-4 transition hover:bg-slate-800 sm:flex-row sm:items-center sm:justify-between"
-          >
-            {/* ESQUERDA */}
-            <div className="flex items-center gap-4">
-              <div
-                className={`rounded-full p-2 ${
-                  transaction.type === "income"
-                    ? "bg-green-600/20"
-                    : "bg-red-600/20"
-                }`}
-              >
-                {transaction.type === "income" ? (
-                  <ArrowUpCircle className="h-5 w-5 text-green-500" />
-                ) : (
-                  <ArrowDownCircle className="h-5 w-5 text-red-500" />
-                )}
-              </div>
-
-              <div>
-                <p className="font-medium text-white">
-                  {transaction.description}
-                </p>
-
-                <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
-                  <Calendar className="h-3 w-3" />
-                  <span>
-                    {format(new Date(transaction.date), "dd/MM/yyyy", {
-                      locale: ptBR,
-                    })}
-                  </span>
-                  <span>•</span>
-                  <span>{transaction.accounts?.name}</span>
-
-                  {transaction.categories && (
-                    <>
-                      <span>•</span>
-                      <Badge
-                        variant="outline"
-                        className="border-slate-700"
-                        style={{
-                          borderColor: transaction.categories.color,
-                          color: transaction.categories.color,
-                        }}
-                      >
-                        {transaction.categories.name}
-                      </Badge>
-                    </>
-                  )}
-                </div>
-              </div>
+    <div className="space-y-4">
+      {transactions.map((transaction) => (
+        <div 
+          key={transaction.id} 
+          className="flex items-center justify-between group p-3 rounded-xl border border-transparent hover:border-gray-800 hover:bg-white/[0.02] transition-all"
+        >
+          <div className="flex items-center gap-4">
+            {/* Ícone */}
+            <div className={cn(
+              "h-10 w-10 rounded-full flex items-center justify-center border-2 shadow-sm",
+              transaction.type === "income" 
+                ? "bg-green-500/10 border-green-500/20 text-green-500" 
+                : "bg-red-500/10 border-red-500/20 text-red-500"
+            )}>
+              {transaction.type === "income" ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
             </div>
 
-            {/* DIREITA */}
-            <div className="flex items-center justify-between gap-4 sm:flex-col sm:items-end">
-              <p
-                className={`text-lg font-bold ${
-                  transaction.type === "income"
-                    ? "text-green-400"
-                    : "text-red-400"
-                }`}
-              >
-                {transaction.type === "income" ? "+" : "-"} R${" "}
-                {Number(transaction.amount).toFixed(2)}
+            {/* Info */}
+            <div>
+              <p className="text-sm font-bold text-white leading-tight">
+                {transaction.description}
               </p>
-
-              {/* AÇÕES */}
-              <div className="flex gap-2 sm:opacity-0 sm:group-hover:opacity-100 transition">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => handleEdit(transaction)}
-                >
-                  <Pencil className="h-4 w-4 text-slate-400 hover:text-white" />
-                </Button>
-
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => handleDelete(transaction.id)}
-                >
-                  <Trash2 className="h-4 w-4 text-red-400 hover:text-red-500" />
-                </Button>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-blue-500">
+                  {transaction.category_name || "Geral"}
+                </span>
+                <span className="text-gray-600 text-[10px]">•</span>
+                <span className="text-[10px] font-medium text-gray-500">
+                  {format(new Date(transaction.date + 'T12:00:00'), "dd MMM yyyy", { locale: ptBR })}
+                </span>
               </div>
             </div>
           </div>
-        ))}
 
-        {transactions.length === 0 && (
-          <p className="py-8 text-center text-slate-500">
-            Nenhuma transação encontrada
-          </p>
-        )}
-      </div>
-    </Card>
+          <div className="flex items-center gap-4">
+            {/* Valor */}
+            <div className="text-right">
+              <p className={cn(
+                "text-sm font-black tracking-tight",
+                transaction.type === "income" ? "text-green-500" : "text-red-500"
+              )}>
+                {transaction.type === "income" ? "+" : "-"} R$ {Math.abs(transaction.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </p>
+            </div>
+
+            {/* Menu de Ações */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-500 hover:text-white">
+                  <MoreVertical size={16} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-[#161b22] border-gray-800 text-white">
+                <DropdownMenuItem className="flex items-center gap-2 cursor-pointer focus:bg-gray-800 focus:text-white">
+                  <Edit2 size={14} /> Editar
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={() => handleDelete(transaction.id, transaction.amount, transaction.type, transaction.account_id)}
+                  className="flex items-center gap-2 cursor-pointer text-red-500 focus:bg-red-500/10 focus:text-red-500"
+                >
+                  <Trash2 size={14} /> Excluir
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }

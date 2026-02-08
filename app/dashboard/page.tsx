@@ -4,14 +4,9 @@ import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 
 export default async function DashboardPage() {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect("/auth/login")
-  }
+  if (!user) redirect("/login")
 
   return <DashboardLayout user={user} />
 }
