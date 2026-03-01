@@ -3,12 +3,36 @@
 import { useState, useRef, useEffect } from "react"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
-import { Bot, Send, Sparkles, Trash2, ArrowDown } from "lucide-react"
+import { Bot, Send, Sparkles, Trash2, ArrowDown, CheckCircle, XCircle, RefreshCw } from "lucide-react"
+
+interface TransactionItem {
+  description: string
+  amount: number
+  type: string
+  date: string
+  category_name: string
+  isInstallment: boolean
+  status?: string
+}
+
+interface InstallmentSummary {
+  description: string
+  totalAmount: number
+  installmentsCount: number
+  paidInstallments: number
+  type: string
+  status: string
+  monthlyAmount: number
+}
 
 interface AssistantTabProps {
   totalIncome: number
   totalExpenses: number
   totalBalance: number
+  userId: string
+  transactions: TransactionItem[]
+  installmentsSummary: InstallmentSummary[]
+  onTransactionCreated?: () => void
 }
 
 function getMessageText(message: { parts?: Array<{ type: string; text?: string }> }): string {
@@ -19,7 +43,62 @@ function getMessageText(message: { parts?: Array<{ type: string; text?: string }
     .join("")
 }
 
-export function AssistantTab({ totalIncome, totalExpenses, totalBalance }: AssistantTabProps) {
+function ToolResultCard({ part }: { part: any }) {
+  const result = part.result
+  if (!result) return null
+
+  if (part.toolName === "addTransaction") {
+    if (result.success) {
+      return (
+        <div className="bg-green-950/40 border border-green-800/50 rounded-xl p-3 my-2">
+          <div className="flex items-center gap-2 mb-1">
+            <CheckCircle size={14} className="text-green-400" />
+            <span className="text-green-400 text-[10px] font-black uppercase">Transacao Registrada</span>
+          </div>
+          <p className="text-green-200 text-xs">
+            {result.transaction.type === "income" ? "Receita" : "Despesa"}: {result.transaction.description} - R$ {Number(result.transaction.amount).toFixed(2)}
+          </p>
+        </div>
+      )
+    } else {
+      return (
+        <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-3 my-2">
+          <div className="flex items-center gap-2 mb-1">
+            <XCircle size={14} className="text-red-400" />
+            <span className="text-red-400 text-[10px] font-black uppercase">Erro ao Registrar</span>
+          </div>
+          <p className="text-red-200 text-xs">{result.error}</p>
+        </div>
+      )
+    }
+  }
+
+  if (part.toolName === "getAccountBalance" && result.success) {
+    return (
+      <div className="bg-blue-950/40 border border-blue-800/50 rounded-xl p-3 my-2">
+        <div className="flex items-center gap-2 mb-1">
+          <CheckCircle size={14} className="text-blue-400" />
+          <span className="text-blue-400 text-[10px] font-black uppercase">Saldo da Conta</span>
+        </div>
+        <p className="text-blue-200 text-xs">
+          {result.account.name}: R$ {Number(result.account.balance).toFixed(2)}
+        </p>
+      </div>
+    )
+  }
+
+  return null
+}
+
+export function AssistantTab({
+  totalIncome,
+  totalExpenses,
+  totalBalance,
+  userId,
+  transactions,
+  installmentsSummary,
+  onTransactionCreated,
+}: AssistantTabProps) {
   const [input, setInput] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -32,13 +111,62 @@ export function AssistantTab({ totalIncome, totalExpenses, totalBalance }: Assis
         body: {
           messages,
           id,
-          context: { totalIncome, totalExpenses, totalBalance },
+          context: {
+            totalIncome,
+            totalExpenses,
+            totalBalance,
+            userId,
+            transactions: transactions.slice(0, 15).map((t) => ({
+              description: t.description,
+              amount: t.amount,
+              type: t.type,
+              date: t.date,
+              category_name: t.category_name,
+              isInstallment: t.isInstallment,
+              status: t.status,
+            })),
+            installmentsSummary,
+          },
         },
       }),
     }),
+    onFinish: () => {
+      // Verificar se houve tool call de addTransaction com sucesso
+      const lastMsg = messages[messages.length - 1]
+      if (lastMsg?.parts) {
+        const hasNewTransaction = lastMsg.parts.some(
+          (p: any) =>
+            p.type === "tool-invocation" &&
+            p.toolName === "addTransaction" &&
+            p.result?.success
+        )
+        if (hasNewTransaction) {
+          onTransactionCreated?.()
+        }
+      }
+    },
   })
 
   const isLoading = status === "streaming" || status === "submitted"
+
+  // Detectar transacao criada e chamar callback
+  useEffect(() => {
+    if (!isLoading && messages.length > 0) {
+      const lastMsg = messages[messages.length - 1]
+      if (lastMsg?.role === "assistant" && lastMsg.parts) {
+        const hasNewTransaction = lastMsg.parts.some(
+          (p: any) =>
+            p.type === "tool-invocation" &&
+            p.toolName === "addTransaction" &&
+            p.state === "output-available" &&
+            p.result?.success
+        )
+        if (hasNewTransaction) {
+          onTransactionCreated?.()
+        }
+      }
+    }
+  }, [isLoading, messages, onTransactionCreated])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -55,10 +183,10 @@ export function AssistantTab({ totalIncome, totalExpenses, totalBalance }: Assis
   }
 
   const suggestions = [
-    "Como estao minhas financas?",
-    "Dicas para economizar",
-    "Analise meu saldo",
-    "Como posso investir?",
+    "Como estao minhas financas este mes?",
+    "Registrar despesa de R$50 no supermercado",
+    "Quanto tenho em parcelas pendentes?",
+    "Dicas para economizar baseado nos meus gastos",
   ]
 
   return (
@@ -74,19 +202,30 @@ export function AssistantTab({ totalIncome, totalExpenses, totalBalance }: Assis
               FinBot Assistente
             </h2>
             <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider mt-0.5">
-              {isLoading ? "Digitando..." : "Online"}
+              {isLoading ? "Processando..." : "Online - Pode inserir transacoes"}
             </p>
           </div>
         </div>
-        {messages.length > 0 && (
-          <button
-            onClick={() => setMessages([])}
-            className="text-gray-600 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-red-400/10"
-            title="Limpar conversa"
-          >
-            <Trash2 size={16} />
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {onTransactionCreated && (
+            <button
+              onClick={onTransactionCreated}
+              className="text-gray-600 hover:text-blue-400 transition-colors p-2 rounded-lg hover:bg-blue-400/10"
+              title="Atualizar dados"
+            >
+              <RefreshCw size={16} />
+            </button>
+          )}
+          {messages.length > 0 && (
+            <button
+              onClick={() => setMessages([])}
+              className="text-gray-600 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-red-400/10"
+              title="Limpar conversa"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -103,10 +242,13 @@ export function AssistantTab({ totalIncome, totalExpenses, totalBalance }: Assis
             <h3 className="text-white font-black text-lg mb-2">
               Ola! Sou o FinBot
             </h3>
-            <p className="text-gray-500 text-sm max-w-sm mb-6">
-              Seu assistente financeiro pessoal. Pergunte sobre suas financas, peca dicas de economia ou analises dos seus gastos.
+            <p className="text-gray-500 text-sm max-w-sm mb-2">
+              Seu assistente financeiro pessoal. Pergunte sobre suas financas, peca dicas ou registre transacoes diretamente pelo chat.
             </p>
-            <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
+            <p className="text-blue-400/70 text-xs max-w-sm mb-6">
+              Parcelas e transacoes fazem parte dos meus calculos.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-md">
               {suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
@@ -123,9 +265,14 @@ export function AssistantTab({ totalIncome, totalExpenses, totalBalance }: Assis
         ) : (
           messages.map((message) => {
             const text = getMessageText(message)
-            if (!text) return null
-
             const isUser = message.role === "user"
+
+            // Coletar tool-invocation parts
+            const toolParts = message.parts?.filter(
+              (p: any) => p.type === "tool-invocation" && p.state === "output-available"
+            ) || []
+
+            if (!text && toolParts.length === 0) return null
 
             return (
               <div
@@ -133,7 +280,7 @@ export function AssistantTab({ totalIncome, totalExpenses, totalBalance }: Assis
                 className={`flex ${isUser ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                  className={`max-w-[85%] rounded-2xl px-4 py-3 ${
                     isUser
                       ? "bg-blue-600 text-white rounded-br-sm"
                       : "bg-[#161b22] border border-gray-800 text-gray-200 rounded-bl-sm"
@@ -145,7 +292,13 @@ export function AssistantTab({ totalIncome, totalExpenses, totalBalance }: Assis
                       <span className="text-blue-400 text-[10px] font-black uppercase">FinBot</span>
                     </div>
                   )}
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{text}</p>
+                  {/* Render tool results */}
+                  {toolParts.map((part: any, idx: number) => (
+                    <ToolResultCard key={idx} part={part} />
+                  ))}
+                  {text && (
+                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{text}</p>
+                  )}
                 </div>
               </div>
             )
@@ -195,7 +348,7 @@ export function AssistantTab({ totalIncome, totalExpenses, totalBalance }: Assis
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Digite sua pergunta..."
+            placeholder="Pergunte ou diga: 'Registrar despesa de R$50 no mercado'..."
             disabled={isLoading}
             className="flex-1 bg-[#0d1117] border border-gray-800 rounded-xl px-4 py-3 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-blue-500/50 transition-colors disabled:opacity-50"
           />
