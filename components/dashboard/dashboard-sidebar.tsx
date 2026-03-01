@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { LayoutDashboard, Receipt, PieChart, ChevronLeft, ChevronRight } from "lucide-react"
+import { LayoutDashboard, Receipt, PieChart, ChevronLeft, ChevronRight, Bot } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface SidebarProps {
@@ -65,6 +65,13 @@ export function DashboardSidebar({
           label="Parcelas" 
           active={activeTab === 'parcelas'} 
           onClick={() => setActiveTab('parcelas')}
+          collapsed={isCollapsed} 
+        />
+        <NavItem 
+          icon={<Bot size={20} />} 
+          label="Assistente" 
+          active={activeTab === 'assistente'} 
+          onClick={() => setActiveTab('assistente')}
           collapsed={isCollapsed} 
         />
       </nav>

@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Calendar, Wallet, TrendingUp, Filter, LayoutDashboard, Receipt, Layers } from "lucide-react"
+import { Calendar, Wallet, TrendingUp, Filter, LayoutDashboard, Receipt, Layers, Bot } from "lucide-react"
 import { TransactionsList } from "./transactions-list"
 import { InstallmentsList } from "./installments-list"
 import { BalanceMascot } from "./balance-mascot"
-import { EvolutionChart } from "./evolution-chart" // Importando o novo componente
+import { EvolutionChart } from "./evolution-chart"
+import { AssistantTab } from "./assistant-tab"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
 
@@ -156,6 +157,14 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
           >
             <Layers size={14} /> Parcelas
           </button>
+          <button
+            onClick={() => setActiveTab('assistente')}
+            className={`flex items-center gap-2 px-5 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+              activeTab === 'assistente' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            <Bot size={14} /> FinBot
+          </button>
         </nav>
       </div>
 
@@ -243,6 +252,15 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
         <div className="animate-in slide-in-from-right-8 duration-600">
           <InstallmentsList userId={effectiveUserId} onSuccess={loadData} />
         </div>
+      )}
+
+      {/* ABA ASSISTENTE */}
+      {activeTab === 'assistente' && (
+        <AssistantTab
+          totalIncome={data.totalIncome}
+          totalExpenses={data.totalExpenses}
+          totalBalance={data.totalBalance}
+        />
       )}
 
     </div>

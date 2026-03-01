@@ -6,7 +6,7 @@ import { DashboardSidebar } from "./dashboard-sidebar"
 import { DashboardContent } from "./dashboard-content"
 import { TransactionModal } from "./transaction-modal"
 import { Button } from "@/components/ui/button"
-import { LayoutDashboard, Receipt, PieChart, Plus } from "lucide-react"
+import { LayoutDashboard, Receipt, PieChart, Plus, Bot } from "lucide-react"
 
 interface DashboardLayoutProps {
   user: User
@@ -85,12 +85,10 @@ export function DashboardLayout({ user }: DashboardLayoutProps) {
             <span className="text-[10px]">Parcelas</span>
           </button>
 
-          <div className="flex flex-col items-center gap-1 text-gray-500">
-            <div className="w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-[10px]">
-              {user.email?.charAt(0).toUpperCase()}
-            </div>
-            <span className="text-[10px]">Perfil</span>
-          </div>
+          <button onClick={() => setActiveTab('assistente')} className={`flex flex-col items-center gap-1 ${activeTab === 'assistente' ? 'text-blue-400' : 'text-gray-500'}`}>
+            <Bot size={22} />
+            <span className="text-[10px]">FinBot</span>
+          </button>
         </div>
       </nav>
     </div>
