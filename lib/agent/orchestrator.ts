@@ -316,17 +316,17 @@ async function executeTool(
         if (instError || !installment)
           return { success: false, error: instError?.message || "Erro ao criar parcelamento" }
 
-        const transactions = Array.from({ length: installmentsCount }, (_, i) => ({
-          user_id: session.user_id,
-          account_id: account.id,
-          description: `${input.description} (${i + 1}/${installmentsCount})`,
-          amount: monthlyAmount,
-          type,
-          date: format(addMonths(startDate, i), "yyyy-MM-dd"),
-          installment_id: installment.id,
-        }))
+        const items = Array.from({ length: installmentsCount }, (_, i) => ({
+  installment_id: installment.id,
+  user_id: session.user_id,
+  installment_number: i + 1,
+  amount: monthlyAmount,
+  due_date: format(addMonths(startDate, i), "yyyy-MM-dd"),
+  status: "pending",
+  paid: false,
+}))
 
-        const { error: txError } = await supabase.from("transactions").insert(transactions)
+const { error: txError } = await supabase.from("installment_items").insert(items)
 
         if (txError)
           return { success: false, error: `Parcelamento criado, erro nas parcelas: ${txError.message}` }

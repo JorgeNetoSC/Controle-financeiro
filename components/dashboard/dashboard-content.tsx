@@ -7,6 +7,8 @@ import { InstallmentsList } from "./installments-list"
 import { BalanceMascot } from "./balance-mascot"
 import { EvolutionChart } from "./evolution-chart"
 import { AssistantTab } from "./assistant-tab"
+import { PeriodFilter } from "./period-filter"
+import { CategoryChart } from "./category-chart"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
 
@@ -19,14 +21,25 @@ interface DashboardContentProps {
 
 export function DashboardContent({ userId, user, activeTab, setActiveTab }: DashboardContentProps) {
   const effectiveUserId = userId || user?.id
+  const now = new Date()
+
+  const [month, setMonth] = useState(now.getMonth() + 1)
+  const [year, setYear] = useState(now.getFullYear())
+
+  const handlePeriodChange = (m: number, y: number) => {
+    setMonth(m)
+    setYear(y)
+  }
 
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState({
     totalIncome: 0,
     totalExpenses: 0,
     totalBalance: 0,
+    pendingInstallmentsTotal: 0,
     combinedItems: [] as any[],
     installmentsSummary: [] as any[],
+    categoryData: [] as { name: string; value: number }[],
   })
 
   const supabase = createClient()
@@ -37,16 +50,23 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
     try {
       setLoading(true)
 
+      const start = `${year}-${String(month).padStart(2, "0")}-01`
+      const lastDay = new Date(year, month, 0).getDate()
+      const end = `${year}-${String(month).padStart(2, "0")}-${lastDay}`
+
       const [transRes, instItemsRes, instRes] = await Promise.all([
         supabase
           .from("transactions")
           .select("*, categories(name)")
-          .eq("user_id", effectiveUserId),
-        // ✅ Removido categories(name) — installment_items não tem FK para categories
+          .eq("user_id", effectiveUserId)
+          .gte("date", start)
+          .lte("date", end),
         supabase
           .from("installment_items")
           .select("*, installments(description, type, category_id)")
-          .eq("user_id", effectiveUserId),
+          .eq("user_id", effectiveUserId)
+          .gte("due_date", start)
+          .lte("due_date", end),
         supabase
           .from("installments")
           .select("*")
@@ -67,9 +87,10 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
         amount: i.amount,
         date: i.due_date,
         type: i.installments?.type || "expense",
-        status: i.status,
+        status: i.status || "pending",
         category_name: "Geral",
         isInstallment: true,
+        installment_id: i.installment_id,
       }))
 
       const combined = [...normalTrans, ...mappedInst].sort(
@@ -80,11 +101,16 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
         .filter((i) => i.type === "income")
         .reduce((acc, curr) => acc + Number(curr.amount), 0)
 
-      const expenses = combined
-        .filter((i) => i.type === "expense")
+      const paidExpenses = combined
+        .filter((i) => i.type === "expense" && i.status !== "pending")
         .reduce((acc, curr) => acc + Number(curr.amount), 0)
 
-      // Monta resumo de parcelamentos para o AssistantTab
+      const pendingInstallmentsTotal = mappedInst
+        .filter((i) => i.type === "expense" && i.status === "pending")
+        .reduce((acc, curr) => acc + Number(curr.amount), 0)
+
+      const totalExpenses = paidExpenses + pendingInstallmentsTotal
+
       const installmentsSummary = (instRes.data || []).map((inst) => ({
         description: inst.description,
         totalAmount: Number(inst.total_amount),
@@ -92,26 +118,45 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
         paidInstallments: inst.paid_installments || 0,
         type: inst.type,
         status: inst.status,
-        monthlyAmount: Number(inst.installment_amount || (inst.total_amount / (inst.installments_count || 1))),
+        monthlyAmount: Number(
+          inst.installment_amount ||
+          inst.total_amount / (inst.installments_count || 1)
+        ),
       }))
+
+      const categoryMap: Record<string, number> = {}
+      for (const item of combined) {
+        if (item.type !== "expense") continue
+        const cat = item.category_name || "Geral"
+        categoryMap[cat] = (categoryMap[cat] || 0) + Number(item.amount)
+      }
+      const categoryData = Object.entries(categoryMap)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
 
       setData({
         totalIncome: income,
-        totalExpenses: expenses,
-        totalBalance: income - expenses,
+        totalExpenses,
+        totalBalance: income - totalExpenses,
+        pendingInstallmentsTotal,
         combinedItems: combined,
         installmentsSummary,
+        categoryData,
       })
     } catch (error) {
       console.error("Erro no Dashboard:", error)
     } finally {
       setLoading(false)
     }
-  }, [effectiveUserId])
+  }, [effectiveUserId, month, year])
 
   useEffect(() => {
     loadData()
-  }, [effectiveUserId, loadData])
+  }, [loadData])
+
+  const isFutureMonth =
+    year > now.getFullYear() ||
+    (year === now.getFullYear() && month > now.getMonth() + 1)
 
   const chartData = data.combinedItems
     .reduce((acc: any[], item) => {
@@ -145,6 +190,8 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
       </div>
     )
   }
+
+  const COLORS = ["#3b82f6","#ef4444","#f59e0b","#22c55e","#8b5cf6","#ec4899"]
 
   return (
     <div className="max-w-7xl mx-auto space-y-10">
@@ -180,35 +227,71 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
 
       {/* ABA INÍCIO */}
       {activeTab === "geral" && (
-        <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+
+          {/* FILTRO DE MÊS */}
+          <PeriodFilter month={month} year={year} onChange={handlePeriodChange} />
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* RESUMO FINANCEIRO */}
             <div className="bg-[#161b22] border border-gray-800 rounded-[40px] p-8 flex flex-col justify-between shadow-2xl">
               <div className="flex justify-between items-start mb-6">
-                <h3 className="text-gray-500 text-[10px] font-black uppercase tracking-[0.3em]">Resumo Mensal</h3>
+                <div>
+                  <h3 className="text-gray-500 text-[10px] font-black uppercase tracking-[0.3em]">
+                    Resumo Mensal
+                  </h3>
+                  <p className="text-gray-600 text-[9px] font-bold uppercase mt-0.5 capitalize">
+                    {["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"][month - 1]} {year}
+                    {isFutureMonth && " · Projeção"}
+                  </p>
+                </div>
                 <Wallet size={20} className="text-blue-500" />
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 bg-[#0d1117] rounded-[20px] border border-gray-800">
                   <span className="text-[9px] font-black text-gray-600 uppercase block mb-1">Receitas</span>
                   <span className="text-green-500 font-black text-xl italic">
-                    R$ {data.totalIncome.toLocaleString("pt-BR")}
+                    R$ {data.totalIncome.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                   </span>
                 </div>
                 <div className="p-4 bg-[#0d1117] rounded-[20px] border border-gray-800">
                   <span className="text-[9px] font-black text-gray-600 uppercase block mb-1">Despesas</span>
                   <span className="text-red-500 font-black text-xl italic">
-                    R$ {data.totalExpenses.toLocaleString("pt-BR")}
+                    R$ {data.totalExpenses.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>
+
+              {data.pendingInstallmentsTotal > 0 && (
+                <div className="mt-4 p-3 bg-amber-950/30 border border-amber-800/40 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <span className="text-[9px] font-black text-amber-500/80 uppercase block">
+                      Parcelas pendentes
+                    </span>
+                    <span className="text-amber-400 font-black text-sm">
+                      R$ {data.pendingInstallmentsTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <span className="text-amber-500/50 text-[9px] font-black uppercase">
+                    Ainda não pagas
+                  </span>
+                </div>
+              )}
+
               <div className="mt-6 pt-5 border-t border-gray-800">
-                <p className="text-[10px] font-black text-gray-500 uppercase italic">Saldo Disponível</p>
-                <p className="text-3xl font-black text-white tracking-tighter">
-                  R$ {data.totalBalance.toLocaleString("pt-BR")}
+                <p className="text-[10px] font-black text-gray-500 uppercase italic">
+                  {isFutureMonth ? "Saldo Projetado" : "Saldo Disponível"}
+                </p>
+                <p className={`text-3xl font-black tracking-tighter ${
+                  data.totalBalance >= 0 ? "text-white" : "text-red-400"
+                }`}>
+                  R$ {data.totalBalance.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </p>
               </div>
             </div>
 
+            {/* SAÚDE FINANCEIRA */}
             <div className="bg-[#161b22] border border-gray-800 rounded-[40px] p-8 relative overflow-hidden group min-h-[220px] flex flex-col justify-between">
               <div className="absolute top-0 right-0 p-8 opacity-20 group-hover:opacity-100 transition-all duration-700 group-hover:scale-125">
                 <BalanceMascot income={data.totalIncome} totalBalance={data.totalBalance} />
@@ -219,7 +302,7 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
                 </h3>
                 <p className="text-6xl font-black text-white italic tracking-tighter">
                   {data.totalIncome > 0
-                    ? ((data.totalBalance / data.totalIncome) * 100).toFixed(0)
+                    ? Math.max(0, (data.totalBalance / data.totalIncome) * 100).toFixed(0)
                     : 0}%
                 </p>
               </div>
@@ -234,12 +317,16 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
             </div>
           </div>
 
+          {/* FLUXO + GRÁFICO DE BARRAS */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="bg-[#161b22] border border-gray-800 rounded-[40px] p-8">
               <h3 className="text-white font-black uppercase italic tracking-widest text-[10px] mb-6">
-                Fluxo Recente
+                Fluxo do Mês
               </h3>
-              <TransactionsList transactions={data.combinedItems.slice(0, 5)} onRefresh={loadData} />
+              <TransactionsList
+                transactions={data.combinedItems.slice(0, 5)}
+                onRefresh={loadData}
+              />
             </div>
             <div className="lg:col-span-2 bg-[#161b22] border border-gray-800 rounded-[40px] p-8 shadow-2xl overflow-hidden">
               <div className="flex justify-between items-center mb-6">
@@ -258,13 +345,76 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
               <EvolutionChart data={chartData} />
             </div>
           </div>
+
+          {/* GRÁFICO DE CATEGORIAS */}
+          {data.categoryData.length > 0 && (
+            <div className="bg-[#161b22] border border-gray-800 rounded-[40px] p-8 shadow-2xl">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-white font-black uppercase italic tracking-widest text-sm">
+                    Gastos por Categoria
+                  </h3>
+                  <p className="text-[10px] text-gray-600 font-bold uppercase mt-1">
+                    Distribuição das despesas do mês
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                <CategoryChart data={data.categoryData} />
+                <div className="grid gap-3">
+                  {data.categoryData.map((cat, i) => {
+                    const pct = data.totalExpenses > 0
+                      ? ((cat.value / data.totalExpenses) * 100).toFixed(1)
+                      : "0"
+                    return (
+                      <div key={cat.name} className="flex items-center gap-3">
+                        <div
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: COLORS[i % COLORS.length] }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-gray-400 text-xs truncate">{cat.name}</span>
+                            <span className="text-white text-xs font-black ml-2 shrink-0">
+                              {pct}%
+                            </span>
+                          </div>
+                          <div className="w-full h-1 bg-gray-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-700"
+                              style={{
+                                width: `${pct}%`,
+                                backgroundColor: COLORS[i % COLORS.length],
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <span className="text-gray-500 text-[10px] font-bold shrink-0">
+                          R$ {cat.value.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       )}
 
       {/* ABA EXTRATO */}
       {activeTab === "transacoes" && (
-        <div className="bg-[#161b22] border border-gray-800 rounded-[40px] p-8 shadow-2xl animate-in zoom-in-95 duration-500">
-          <TransactionsList transactions={data.combinedItems} onRefresh={loadData} />
+        <div className="space-y-4 animate-in zoom-in-95 duration-500">
+          <div className="flex items-center justify-between">
+            <PeriodFilter month={month} year={year} onChange={handlePeriodChange} />
+            <span className="text-gray-600 text-[10px] font-black uppercase">
+              {data.combinedItems.length} itens
+            </span>
+          </div>
+          <div className="bg-[#161b22] border border-gray-800 rounded-[40px] p-8 shadow-2xl">
+            <TransactionsList transactions={data.combinedItems} onRefresh={loadData} />
+          </div>
         </div>
       )}
 
@@ -275,7 +425,7 @@ export function DashboardContent({ userId, user, activeTab, setActiveTab }: Dash
         </div>
       )}
 
-      {/* ABA ASSISTENTE — agora com todos os dados necessários */}
+      {/* ABA ASSISTENTE */}
       {activeTab === "assistente" && (
         <AssistantTab
           totalIncome={data.totalIncome}
